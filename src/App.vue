@@ -1,18 +1,24 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import {
+  CalendarDays,
   CheckCircle2,
+  Download,
+  Edit3,
+  Moon,
   Plus,
-  Trash2,
   Search,
+  Settings,
+  Sun,
+  Trash2,
+  User,
   Wifi,
   WifiOff,
-  User,
-  Settings,
   X,
 } from 'lucide-vue-next';
 
 const STORAGE_KEY = 'todoflow_tasks';
+const THEME_KEY = 'todoflow_theme';
 const categories = ['work', 'personal', 'urgent', 'shopping', 'health'];
 const dummyUser = {
   id: 'user_123',
@@ -27,13 +33,19 @@ const isOnline = ref(typeof navigator === 'undefined' ? true : navigator.onLine)
 const notifications = ref([]);
 const searchQuery = ref('');
 const currentFilter = ref('all');
-const showNewTaskForm = ref(false);
+const showTaskForm = ref(false);
+const editingTodoId = ref(null);
 const taskInput = ref(null);
-const newTask = reactive({ text: '', category: 'work' });
+const taskForm = reactive({ text: '', category: 'work', dueDate: '' });
+const theme = ref(loadTheme());
 
 const firstName = computed(() => dummyUser.name.split(' ')[0]);
 const pendingCount = computed(() => todos.value.filter((todo) => !todo.completed).length);
 const completedCount = computed(() => todos.value.filter((todo) => todo.completed).length);
+const hasTasks = computed(() => todos.value.length > 0);
+const isDarkMode = computed(() => theme.value === 'dark');
+const formTitle = computed(() => (editingTodoId.value ? 'Edit Task' : 'New Task'));
+const formSubmitLabel = computed(() => (editingTodoId.value ? 'Save Changes' : 'Launch Task'));
 const filteredTodos = computed(() => {
   const query = searchQuery.value.trim().toLowerCase();
 
@@ -52,7 +64,7 @@ watch(
   { deep: true },
 );
 
-watch(showNewTaskForm, async (isOpen) => {
+watch(showTaskForm, async (isOpen) => {
   document.body.style.overflow = isOpen ? 'hidden' : '';
 
   if (isOpen) {
@@ -61,17 +73,44 @@ watch(showNewTaskForm, async (isOpen) => {
   }
 });
 
+watch(
+  theme,
+  (nextTheme) => {
+    localStorage.setItem(THEME_KEY, nextTheme);
+    document.documentElement.dataset.theme = nextTheme;
+  },
+  { immediate: true },
+);
+
 function loadTodos() {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (!saved) return [];
 
     const parsed = JSON.parse(saved);
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed.map((todo) => ({
+      ...todo,
+      createdAt: todo.createdAt || Date.now(),
+      updatedAt: todo.updatedAt || todo.createdAt || Date.now(),
+      dueDate: todo.dueDate || '',
+    }));
   } catch (error) {
     console.error('Error loading tasks:', error);
     return [];
   }
+}
+
+function loadTheme() {
+  const saved = localStorage.getItem(THEME_KEY);
+  if (saved === 'light' || saved === 'dark') return saved;
+
+  const prefersDark =
+    typeof window !== 'undefined' &&
+    window.matchMedia?.('(prefers-color-scheme: dark)').matches;
+
+  return prefersDark ? 'dark' : 'light';
 }
 
 function addNotification(message) {
@@ -83,38 +122,70 @@ function addNotification(message) {
   }, 3000);
 }
 
+function resetTaskForm() {
+  taskForm.text = '';
+  taskForm.category = 'work';
+  taskForm.dueDate = '';
+  editingTodoId.value = null;
+}
+
 function openNewTaskForm() {
-  showNewTaskForm.value = true;
+  resetTaskForm();
+  showTaskForm.value = true;
 }
 
-function closeNewTaskForm() {
-  showNewTaskForm.value = false;
+function openEditTaskForm(todo) {
+  editingTodoId.value = todo.id;
+  taskForm.text = todo.text;
+  taskForm.category = todo.category;
+  taskForm.dueDate = todo.dueDate || '';
+  showTaskForm.value = true;
 }
 
-function addTodo() {
-  const text = newTask.text.trim();
+function closeTaskForm() {
+  showTaskForm.value = false;
+}
+
+function saveTodo() {
+  const text = taskForm.text.trim();
   if (!text) return;
 
-  todos.value = [
-    {
-      id: Math.random().toString(36).slice(2, 11),
-      text,
-      completed: false,
-      category: newTask.category,
-      createdAt: Date.now(),
-    },
-    ...todos.value,
-  ];
+  if (editingTodoId.value) {
+    todos.value = todos.value.map((todo) =>
+      todo.id === editingTodoId.value
+        ? {
+            ...todo,
+            text,
+            category: taskForm.category,
+            dueDate: taskForm.dueDate,
+            updatedAt: Date.now(),
+          }
+        : todo,
+    );
+    addNotification('Task updated');
+  } else {
+    todos.value = [
+      {
+        id: Math.random().toString(36).slice(2, 11),
+        text,
+        completed: false,
+        category: taskForm.category,
+        dueDate: taskForm.dueDate,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      },
+      ...todos.value,
+    ];
+    addNotification('Task added successfully');
+  }
 
-  newTask.text = '';
-  newTask.category = 'work';
-  closeNewTaskForm();
-  addNotification('Task added successfully');
+  closeTaskForm();
+  resetTaskForm();
 }
 
 function toggleTodo(id) {
   todos.value = todos.value.map((todo) =>
-    todo.id === id ? { ...todo, completed: !todo.completed } : todo,
+    todo.id === id ? { ...todo, completed: !todo.completed, updatedAt: Date.now() } : todo,
   );
   addNotification('Task status updated');
 }
@@ -124,9 +195,60 @@ function deleteTodo(id) {
   addNotification('Task removed');
 }
 
+function clearAllTasks() {
+  if (!hasTasks.value) return;
+  const shouldClear = window.confirm('Clear every saved task? This cannot be undone.');
+  if (!shouldClear) return;
+
+  todos.value = [];
+  addNotification('All tasks cleared');
+}
+
+function exportTasks() {
+  const payload = {
+    exportedAt: new Date().toISOString(),
+    tasks: todos.value,
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+
+  link.href = url;
+  link.download = `todoflow-tasks-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  addNotification('Task export downloaded');
+}
+
+function toggleTheme() {
+  theme.value = isDarkMode.value ? 'light' : 'dark';
+}
+
+function formatDate(timestamp) {
+  if (!timestamp) return 'Not available';
+
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(new Date(timestamp));
+}
+
+function formatDueDate(value) {
+  if (!value) return 'No due date';
+
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(new Date(`${value}T00:00:00`));
+}
+
 function handleEscape(event) {
-  if (event.key === 'Escape' && showNewTaskForm.value) {
-    closeNewTaskForm();
+  if (event.key === 'Escape' && showTaskForm.value) {
+    closeTaskForm();
   }
 }
 
@@ -188,6 +310,16 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="topbar-actions">
+          <button
+            type="button"
+            class="utility-button theme-button"
+            :aria-label="isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'"
+            @click="toggleTheme"
+          >
+            <Sun v-if="isDarkMode" :size="16" aria-hidden="true" />
+            <Moon v-else :size="16" aria-hidden="true" />
+          </button>
+
           <div class="status-pill">
             <Wifi v-if="isOnline" :size="14" class="online-icon" aria-hidden="true" />
             <WifiOff v-else :size="14" class="offline-icon" aria-hidden="true" />
@@ -246,6 +378,17 @@ onBeforeUnmount(() => {
         </button>
       </section>
 
+      <section class="data-actions" aria-label="Saved task controls">
+        <button type="button" class="secondary-button" :disabled="!hasTasks" @click="exportTasks">
+          <Download :size="16" aria-hidden="true" />
+          Export Tasks
+        </button>
+        <button type="button" class="danger-button" :disabled="!hasTasks" @click="clearAllTasks">
+          <Trash2 :size="16" aria-hidden="true" />
+          Clear All
+        </button>
+      </section>
+
       <section class="category-row" aria-label="Task categories">
         <button
           type="button"
@@ -300,16 +443,36 @@ onBeforeUnmount(() => {
                   <span class="task-id font-mono">ID:{{ todo.id }}</span>
                 </div>
                 <h3 class="task-title" :class="{ done: todo.completed }">{{ todo.text }}</h3>
+                <dl class="task-dates">
+                  <div>
+                    <dt>Created</dt>
+                    <dd>{{ formatDate(todo.createdAt) }}</dd>
+                  </div>
+                  <div>
+                    <dt>Due</dt>
+                    <dd>{{ formatDueDate(todo.dueDate) }}</dd>
+                  </div>
+                </dl>
               </div>
 
-              <button
-                type="button"
-                class="delete-button"
-                aria-label="Delete task"
-                @click="deleteTodo(todo.id)"
-              >
-                <Trash2 :size="16" aria-hidden="true" />
-              </button>
+              <div class="task-buttons">
+                <button
+                  type="button"
+                  class="edit-button"
+                  aria-label="Edit task"
+                  @click="openEditTaskForm(todo)"
+                >
+                  <Edit3 :size="16" aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  class="delete-button"
+                  aria-label="Delete task"
+                  @click="deleteTodo(todo.id)"
+                >
+                  <Trash2 :size="16" aria-hidden="true" />
+                </button>
+              </div>
             </div>
           </article>
         </div>
@@ -318,31 +481,36 @@ onBeforeUnmount(() => {
 
     <Teleport to="body">
       <div
-        v-if="showNewTaskForm"
+        v-if="showTaskForm"
         class="modal-backdrop"
         role="dialog"
         aria-modal="true"
-        aria-labelledby="new-task-title"
-        @click.self="closeNewTaskForm"
+        aria-labelledby="task-form-title"
+        @click.self="closeTaskForm"
       >
         <section class="modal-panel">
           <div class="modal-title-row">
-            <h3 id="new-task-title">New Task</h3>
-            <button type="button" class="icon-button" aria-label="Close modal" @click="closeNewTaskForm">
+            <h3 id="task-form-title">{{ formTitle }}</h3>
+            <button type="button" class="icon-button" aria-label="Close modal" @click="closeTaskForm">
               <X :size="20" aria-hidden="true" />
             </button>
           </div>
 
-          <form class="task-form" @submit.prevent="addTodo">
+          <form class="task-form" @submit.prevent="saveTodo">
             <label>
               <span class="field-label">Task Title</span>
               <input
                 ref="taskInput"
-                v-model="newTask.text"
+                v-model="taskForm.text"
                 type="text"
                 class="task-input"
                 placeholder="Task description..."
               />
+            </label>
+
+            <label>
+              <span class="field-label">Due Date</span>
+              <input v-model="taskForm.dueDate" type="date" class="task-input" />
             </label>
 
             <fieldset>
@@ -353,16 +521,16 @@ onBeforeUnmount(() => {
                   :key="category"
                   type="button"
                   class="category-choice"
-                  :class="{ 'is-active': newTask.category === category }"
-                  @click="newTask.category = category"
+                  :class="{ 'is-active': taskForm.category === category }"
+                  @click="taskForm.category = category"
                 >
                   {{ category }}
                 </button>
               </div>
             </fieldset>
 
-            <button type="submit" class="primary-button" :disabled="!newTask.text.trim()">
-              Launch Task
+            <button type="submit" class="primary-button" :disabled="!taskForm.text.trim()">
+              {{ formSubmitLabel }}
             </button>
           </form>
         </section>

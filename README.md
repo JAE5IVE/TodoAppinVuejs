@@ -12,8 +12,12 @@ https://todoappinvuejsts.netlify.app/
 - Category filters for work, personal, urgent, shopping, and health tasks
 - Search across task titles
 - Add, complete, and delete tasks
+- Edit existing tasks
+- Created dates and optional due dates
 - Offline/online network indicator
 - Toast notifications
+- Export tasks to JSON and clear all saved tasks
+- Dark mode with saved theme preference
 - Responsive Vue single-file component UI
 
 ## Tech Stack
@@ -22,6 +26,7 @@ https://todoappinvuejsts.netlify.app/
 - Vite
 - lucide-vue-next
 - Plain CSS
+- Vitest and Vue Test Utils
 
 ## Getting Started
 
@@ -34,4 +39,10 @@ Build for production:
 
 ```bash
 npm run build
+```
+
+Run tests:
+
+```bash
+npm test
 ```
