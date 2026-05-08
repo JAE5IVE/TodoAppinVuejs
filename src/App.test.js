@@ -4,6 +4,7 @@ import App from './App.vue';
 
 const STORAGE_KEY = 'todoflow_tasks';
 const THEME_KEY = 'todoflow_theme';
+const ACCOUNT_KEY = 'todoflow_account';
 
 function mountApp() {
   const host = document.createElement('div');
@@ -21,6 +22,10 @@ function mountApp() {
 
 function seedTasks(tasks) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+}
+
+function seedAccount(name = 'Joseph Tuta') {
+  localStorage.setItem(ACCOUNT_KEY, JSON.stringify({ name, email: 'joseph@example.com' }));
 }
 
 function findButton(wrapper, text) {
@@ -52,6 +57,7 @@ async function createTask(wrapper, title, category = 'work', dueDate = '') {
 
 beforeEach(() => {
   localStorage.clear();
+  seedAccount();
   document.body.innerHTML = '';
   document.documentElement.removeAttribute('data-theme');
   Object.defineProperty(window, 'matchMedia', {
@@ -65,6 +71,18 @@ afterEach(() => {
 });
 
 describe('TodoFlow Vue app', () => {
+  it('creates a local account and greets the username', async () => {
+    localStorage.clear();
+    const wrapper = mountApp();
+
+    await wrapper.find('input[placeholder="Your username"]').setValue('JAE5IVE');
+    await wrapper.find('input[placeholder="you@example.com"]').setValue('jae5ive@example.com');
+    await findButton(wrapper, 'Create Account').trigger('click');
+
+    expect(wrapper.text()).toContain('Good morning, JAE5IVE!');
+    expect(JSON.parse(localStorage.getItem(ACCOUNT_KEY)).name).toBe('JAE5IVE');
+  });
+
   it('adds a task with a category and due date', async () => {
     const wrapper = mountApp();
 

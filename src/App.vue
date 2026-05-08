@@ -1,7 +1,6 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import {
-  CalendarDays,
   CheckCircle2,
   Download,
   Edit3,
@@ -11,25 +10,18 @@ import {
   Settings,
   Sun,
   Trash2,
-  User,
-  Wifi,
-  WifiOff,
   X,
 } from 'lucide-vue-next';
 
 const STORAGE_KEY = 'todoflow_tasks';
 const THEME_KEY = 'todoflow_theme';
+const ACCOUNT_KEY = 'todoflow_account';
 const categories = ['work', 'personal', 'urgent', 'shopping', 'health'];
-const dummyUser = {
-  id: 'user_123',
-  name: 'Joseph Tuta',
-  email: 'demo@example.com',
-  avatar: 'JT',
-};
 
 const todos = ref(loadTodos());
-const isLoggedIn = ref(true);
-const isOnline = ref(typeof navigator === 'undefined' ? true : navigator.onLine);
+const account = ref(loadAccount());
+const isLoggedIn = ref(Boolean(account.value));
+const authMode = ref(account.value ? 'login' : 'register');
 const notifications = ref([]);
 const searchQuery = ref('');
 const currentFilter = ref('all');
@@ -37,9 +29,11 @@ const showTaskForm = ref(false);
 const editingTodoId = ref(null);
 const taskInput = ref(null);
 const taskForm = reactive({ text: '', category: 'work', dueDate: '' });
+const authForm = reactive({ name: account.value?.name || '', email: account.value?.email || '' });
 const theme = ref(loadTheme());
 
-const firstName = computed(() => dummyUser.name.split(' ')[0]);
+const username = computed(() => account.value?.name || 'there');
+const userInitial = computed(() => username.value.trim().charAt(0).toUpperCase() || 'U');
 const pendingCount = computed(() => todos.value.filter((todo) => !todo.completed).length);
 const completedCount = computed(() => todos.value.filter((todo) => todo.completed).length);
 const hasTasks = computed(() => todos.value.length > 0);
@@ -81,6 +75,19 @@ watch(
   },
   { immediate: true },
 );
+
+function loadAccount() {
+  try {
+    const saved = localStorage.getItem(ACCOUNT_KEY);
+    if (!saved) return null;
+
+    const parsed = JSON.parse(saved);
+    return parsed?.name ? parsed : null;
+  } catch (error) {
+    console.error('Error loading account:', error);
+    return null;
+  }
+}
 
 function loadTodos() {
   try {
@@ -226,6 +233,38 @@ function toggleTheme() {
   theme.value = isDarkMode.value ? 'light' : 'dark';
 }
 
+function createAccount() {
+  const name = authForm.name.trim();
+  const email = authForm.email.trim();
+  if (!name) return;
+
+  const nextAccount = {
+    name,
+    email,
+    createdAt: Date.now(),
+  };
+
+  account.value = nextAccount;
+  localStorage.setItem(ACCOUNT_KEY, JSON.stringify(nextAccount));
+  isLoggedIn.value = true;
+  addNotification(`Welcome, ${name}`);
+}
+
+function signIn() {
+  if (!account.value) {
+    authMode.value = 'register';
+    return;
+  }
+
+  isLoggedIn.value = true;
+  addNotification(`Welcome back, ${account.value.name}`);
+}
+
+function signOut() {
+  isLoggedIn.value = false;
+  authMode.value = account.value ? 'login' : 'register';
+}
+
 function formatDate(timestamp) {
   if (!timestamp) return 'Not available';
 
@@ -252,25 +291,13 @@ function handleEscape(event) {
   }
 }
 
-function handleOnline() {
-  isOnline.value = true;
-}
-
-function handleOffline() {
-  isOnline.value = false;
-}
-
 onMounted(() => {
   window.addEventListener('keydown', handleEscape);
-  window.addEventListener('online', handleOnline);
-  window.addEventListener('offline', handleOffline);
 });
 
 onBeforeUnmount(() => {
   document.body.style.overflow = '';
   window.removeEventListener('keydown', handleEscape);
-  window.removeEventListener('online', handleOnline);
-  window.removeEventListener('offline', handleOffline);
 });
 </script>
 
@@ -278,10 +305,48 @@ onBeforeUnmount(() => {
   <main v-if="!isLoggedIn" class="login-screen">
     <section class="login-card" aria-labelledby="login-title">
       <h1 id="login-title">TodoFlow</h1>
-      <p>Please sign in to manage your tasks</p>
-      <button class="primary-button" type="button" @click="isLoggedIn = true">
-        Sign in with Google
-      </button>
+      <p>{{ account ? 'Sign in to continue managing your tasks' : 'Create an account to start managing your tasks' }}</p>
+
+      <form v-if="authMode === 'register'" class="auth-form" @submit.prevent="createAccount">
+        <label>
+          <span class="field-label">Username</span>
+          <input
+            v-model="authForm.name"
+            class="task-input"
+            type="text"
+            autocomplete="name"
+            placeholder="Your username"
+          />
+        </label>
+        <label>
+          <span class="field-label">Email</span>
+          <input
+            v-model="authForm.email"
+            class="task-input"
+            type="email"
+            autocomplete="email"
+            placeholder="you@example.com"
+          />
+        </label>
+        <button class="primary-button auth-submit" type="submit" :disabled="!authForm.name.trim()">
+          Create Account
+        </button>
+        <button v-if="account" class="text-button" type="button" @click="authMode = 'login'">
+          Already have an account? Sign in
+        </button>
+      </form>
+
+      <div v-else class="auth-form">
+        <p class="saved-account">
+          {{ account.name }}
+        </p>
+        <button class="primary-button auth-submit" type="button" @click="signIn">
+          Sign in
+        </button>
+        <button class="text-button" type="button" @click="authMode = 'register'">
+          Create a different account
+        </button>
+      </div>
     </section>
   </main>
 
@@ -296,17 +361,6 @@ onBeforeUnmount(() => {
       <div class="topbar-inner">
         <div class="brand-row">
           <h1 class="brand">TodoFlow</h1>
-          <div class="view-switcher" aria-label="View selector">
-            <button
-              type="button"
-              class="view-tab"
-              :class="{ 'is-active': currentFilter === 'all' }"
-              @click="currentFilter = 'all'"
-            >
-              Board
-            </button>
-            <button type="button" class="view-tab" disabled>Calendar</button>
-          </div>
         </div>
 
         <div class="topbar-actions">
@@ -320,26 +374,19 @@ onBeforeUnmount(() => {
             <Moon v-else :size="16" aria-hidden="true" />
           </button>
 
-          <div class="status-pill">
-            <Wifi v-if="isOnline" :size="14" class="online-icon" aria-hidden="true" />
-            <WifiOff v-else :size="14" class="offline-icon" aria-hidden="true" />
-            <span>{{ isOnline ? 'Network Sync' : 'Offline Mode' }}</span>
-          </div>
-
           <div class="divider" />
 
           <div class="profile-button">
             <div class="profile-copy">
-              <p class="profile-name">{{ dummyUser.name }}</p>
-              <p class="profile-plan">Free Plan</p>
+              <p class="profile-name">{{ username }}</p>
             </div>
             <button
               type="button"
               class="avatar-button"
               aria-label="Sign out"
-              @click="isLoggedIn = false"
+              @click="signOut"
             >
-              <User :size="18" aria-hidden="true" />
+              <span aria-hidden="true">{{ userInitial }}</span>
             </button>
           </div>
         </div>
@@ -350,7 +397,7 @@ onBeforeUnmount(() => {
       <header class="page-header">
         <h2 class="greeting">
           Good morning,<br />
-          {{ firstName }}!
+          {{ username }}!
         </h2>
         <div class="stats-row" aria-label="Task statistics">
           <span class="pill pill-blue">
@@ -537,6 +584,6 @@ onBeforeUnmount(() => {
       </div>
     </Teleport>
 
-    <footer class="footer font-mono">DESIGNED FOR JAE5IVE &lt;&gt; TODOFLOW CLOUD v4.1.0-STABLE</footer>
+    <footer class="footer font-mono">jae5ive incorporated</footer>
   </div>
 </template>
